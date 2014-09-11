@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import rospy
-from geometry_msgs import Twist
+from geometry_msgs.msg import Twist, Vector3
 
 
 def getch():
@@ -22,15 +22,14 @@ def rc():
     r = rospy.Rate(10) # 10hz
     while not rospy.is_shutdown():
         key = getch()
+        linear = Vector3(x=0.0,y=0.0,z=0.0)
+        angular = Vector3(x=0.0,y=0.0,z=0.0)
         if key == 'j':
-            rospy.loginfo([[0.0,0.0,0.0],[0.0,0.0,0.5]])
-            pub.publish([[0.0,0.0,0.0],[0.0,0.0,0.5]])
-        elif key =='k':
-            rospy.loginfo([[0.0,0.0,0.0],[0.0,0.0,0.0]])
-            pub.publish([[0.0,0.0,0.0],[0.0,0.0,0.0]])
+            angular.z = 0.5
         elif key =='l':
-            rospy.loginfo([[0.0,0.0,0.0],[0.0,0.0,-0.5]])
-            pub.publish([[0.0,0.0,0.0],[0.0,0.0,-0.5]])
+            angular.z = 0.5
+        rospy.loginfo([linear,angular])
+        pub.publish(Twist(linear = linear,angular = angular))
         
         r.sleep()
         
