@@ -39,33 +39,68 @@
 import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
+import cv2
 
 distance_to_wall = -1.0
 angle_to_wall = 0.0
+target = 1
+pub = None
+buf_big = .2
+buf_small = .05
+state = "approach"
 
-def callback(data):
+def scan_received(data):
     global distance_to_wall
+    global state
 
     vals = [(data.ranges[i],data.angle_min+(data.angle_increment*i)) for i in range(len(data.ranges)) if data.ranges[i]>0]
-    distance_to_wall,angle_to_wall = min(vals)
+    if len(vals):
+        distance_to_wall,angle_to_wall = min(vals)
+        if state == "wall follow":
+            print "wall follow"
+            if abs(distance_to_wall-target)>buf_big:
+                state="approach"
+                pub.publish(Twist())
+            else:
+                turn = angle_to_wall-1.57
+                pub.publish(Twist(linear=Vector3(x=.05*(4.8-turn)),angular=Vector3(z=turn)))
+        elif state == "align":
+            print "align"
+            if abs(angle_to_wall-1.57) < .2:
+                state = "wall follow"
+                pub.publish(Twist())
+            else:
+                pub.publish(Twist(angular=Vector3(z=angle_to_wall-1.57)))
+        elif state == "approach":
+            if abs(distance_to_wall-target)<buf_small:
+                state="align"
+                pub.publish(Twist())
+            elif angle_to_wall<.2 or angle_to_wall>6.1:
+                print "moving"
+                pub.publish(Twist(linear=Vector3(x=.4*(distance_to_wall-target))))
+            else:
+                print "turning"
+                pub.publish(Twist(angular = Vector3(z = (-angle_to_wall+3.142))))
 
-    rospy.loginfo((distance_to_wall,angle_to_wall))
-    rospy.loginfo("\n\n")
-    
-def wallFollow():
-    """ Run loop for the wall node """
-    pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-    sub = rospy.Subscriber('/scan', LaserScan, callback)
-    rospy.init_node('wall', anonymous=True)
-    r = rospy.Rate(10) # 10hz
-    while not rospy.is_shutdown():
-        if distance_to_wall == -1:
-            msg = Twist()
-        else:
-            msg = Twist(linear=Vector3(x=(distance_to_wall-2)*.2))
-        pub.publish(msg)
+def set_target_distance(new_distance):
+    """ call back function for the OpenCv Slider to set the target distance """
+    global target
+    target = new_distance/100.0
+
+def wall_withslider():
+    global pub
+    """ Main run loop for wall with slider """
+    cv2.namedWindow('UI')
+    cv2.createTrackbar('distance', 'UI', int(target*100), 300, set_target_distance)
+    rospy.init_node('approach_wall', anonymous=True)
+    pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+    sub = rospy.Subscriber('scan', LaserScan, scan_received)
+    r = rospy.Rate(10)
+    while not(rospy.is_shutdown()):
+        #if distance_to_wall != -1:
+        cv2.waitKey(10)
         r.sleep()
 
         
 if __name__ == '__main__':
-    wallFollow()
+    wall_withslider()
