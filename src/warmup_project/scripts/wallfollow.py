@@ -62,7 +62,7 @@ def wallFollow():
         if distance_to_wall == -1:
             msg = Twist()
         else:
-            msg = Twist(linear=Vector3(x=(distance_to_wall-1)*.2))
+            msg = Twist(linear=Vector3(x=(distance_to_wall-2)*.2))
         pub.publish(msg)
         r.sleep()
 
