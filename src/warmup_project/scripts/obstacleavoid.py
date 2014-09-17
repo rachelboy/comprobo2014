@@ -41,74 +41,56 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
 import cv2
 
-class WallFollower():
-    def __init__(self, target=1, buf_big=.35, buf_small=.05):
-        self.distance_to_wall = -1.0
-        self.angle_to_wall = 0.0
-        self.target = target
-        self.buf_big = buf_big
-        self.buf_small = buf_small
-        self.state = "approach"
+class ObstacleAvoid():
+    def __init__(self, target=1, buf_big=.2, buf_small=.05):
+        rospy.init_node('avoid_obstacle', anonymous=True)
+        self.pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+        self.sub = rospy.Subscriber('scan', LaserScan, self.scan_received)
 
         self.turn = 0.0
         self.speed = 0.0
 
-        rospy.init_node('approach_wall', anonymous=True)
-        self.pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
-        self.sub = rospy.Subscriber('scan', LaserScan, self.scan_received)
-
     def switch_state(self,state):
         self.state=state
-        self.turn, self.speed = 0.0,0.0
+        self.pub.publish(Twist())
+
+    def angle(self,data,i):
+        return data.angle_min+(data.angle_increment*i)
+
+    def goodness(self,r,angle):
+        if r>3:
+            return (abs(angle-3.1416)/3.1416)
+        else:
+            return (abs(angle-3.1416)/3.1416)*(r-.2)/2.8
 
     def scan_received(self,data):
-        vals = [(data.ranges[i],data.angle_min+(data.angle_increment*i)) for i in range(len(data.ranges)) if data.ranges[i]>0]
-        if len(vals):
-            self.distance_to_wall,self.angle_to_wall = min(vals)
-            if self.state == "wall follow":
-                print "wall follow"
-                if abs(self.distance_to_wall-self.target)>self.buf_big:
-                    self.switch_state("approach")
-                else:
-                    self.turn = self.angle_to_wall-1.57
-                    self.speed = .05*(4.8-self.turn)
-            elif self.state == "align":
-                print "align"
-                if abs(self.angle_to_wall-1.57) < .2:
-                    self.switch_state("wall follow")
-                else:
-                    self.turn = .7*(self.angle_to_wall-1.57)
-                    self.speed = 0.0
-            elif self.state == "approach":
-                if abs(self.distance_to_wall-self.target)<self.buf_small:
-                    self.switch_state("align")
-                elif self.angle_to_wall<.2 or self.angle_to_wall>6.1:
-                    print "moving"
-                    self.turn = 0.0
-                    self.speed = .4*(self.distance_to_wall-self.target)
-                else:
-                    print "turning"
-                    self.turn = .2*(-self.angle_to_wall+3.142)
-                    self.speed = 0.0
+        angles = [data.angle_min+(data.angle_increment*i) for i in range(len(data.ranges))]
+        vals = [(self.goodness(r,a),a) for r,a in zip(data.ranges,angles) if r>0]
+        goal = max(vals)[1]
 
-    def set_target_distance(self,new_distance):
-        """ call back function for the OpenCv Slider to set the target distance """
-        self.target = new_distance/100.0
+        if goal<3.1416:
+            self.turn = 2.5*goal/3.1416
+        else:
+            self.turn = 2.5*(goal-3.14156)/3.14156
+        self.speed = .1*(data.ranges[0]-.15)
+
+        print "ahead", vals[0]
+        print "best", max(vals)
+        print "goal", goal
+        print "turn",self.turn
+        print "speed",self.speed
 
     def wall_withslider(self):
         """ Main run loop for wall with slider """ 
-        cv2.namedWindow('UI')
-        cv2.createTrackbar('distance', 'UI', int(self.target*100), 300, self.set_target_distance)
         r = rospy.Rate(10)
         while not(rospy.is_shutdown()):
             msg = Twist()
             msg.linear.x = self.speed
             msg.angular.z = self.turn
             self.pub.publish(msg)
-            cv2.waitKey(10)
             r.sleep()
 
         
 if __name__ == '__main__':
-    follower = WallFollower()
+    follower = ObstacleAvoid()
     follower.wall_withslider()
