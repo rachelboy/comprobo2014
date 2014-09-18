@@ -40,15 +40,16 @@ import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
 import cv2
+from numpy import argmin
+from scipy.stats import mode
 
 class WallFollower():
-    def __init__(self, target=1, buf_big=.35, buf_small=.05):
-        self.distance_to_wall = -1.0
-        self.angle_to_wall = 0.0
+    def __init__(self, target=.6, buf_big=.3, buf_small=.05):
         self.target = target
         self.buf_big = buf_big
         self.buf_small = buf_small
         self.state = "approach"
+        self.delay_counter = 0
 
         self.turn = 0.0
         self.speed = 0.0
@@ -62,33 +63,41 @@ class WallFollower():
         self.turn, self.speed = 0.0,0.0
 
     def scan_received(self,data):
-        vals = [(data.ranges[i],data.angle_min+(data.angle_increment*i)) for i in range(len(data.ranges)) if data.ranges[i]>0]
-        if len(vals):
-            self.distance_to_wall,self.angle_to_wall = min(vals)
+        vals = [(data.ranges[i],data.angle_min+(data.angle_increment*i)) for i in range(len(data.ranges)) if data.ranges[i]>0 and data.ranges[i]<4]
+        if len(vals)>5:
+            rs,angs = zip(*vals)
+            i = argmin(rs)
+            distance_to_wall = rs[i]
+            angle_to_wall = angs[i]
+            print distance_to_wall, angle_to_wall
             if self.state == "wall follow":
                 print "wall follow"
-                if abs(self.distance_to_wall-self.target)>self.buf_big:
-                    self.switch_state("approach")
+                if abs(distance_to_wall-self.target)>self.buf_big:
+                    self.delay_counter = self.delay_counter+1
+                    if self.delay_counter >= 2:
+                        self.delay_counter = 0
+                        self.switch_state("approach")
                 else:
-                    self.turn = self.angle_to_wall-1.57
+                    self.delay_counter = 0
+                    self.turn = angle_to_wall-1.57
                     self.speed = .05*(4.8-self.turn)
             elif self.state == "align":
                 print "align"
-                if abs(self.angle_to_wall-1.57) < .2:
+                if abs(angle_to_wall-1.57) < .2:
                     self.switch_state("wall follow")
                 else:
-                    self.turn = .7*(self.angle_to_wall-1.57)
+                    self.turn = .7*(angle_to_wall-1.57)
                     self.speed = 0.0
             elif self.state == "approach":
-                if abs(self.distance_to_wall-self.target)<self.buf_small:
+                if abs(distance_to_wall-self.target)<self.buf_small:
                     self.switch_state("align")
-                elif self.angle_to_wall<.2 or self.angle_to_wall>6.1:
+                elif angle_to_wall<.2 or angle_to_wall>6.1:
                     print "moving"
                     self.turn = 0.0
-                    self.speed = .4*(self.distance_to_wall-self.target)
+                    self.speed = .4*(distance_to_wall-self.target)
                 else:
                     print "turning"
-                    self.turn = .2*(-self.angle_to_wall+3.142)
+                    self.turn = .15*(-angle_to_wall+3.142)
                     self.speed = 0.0
 
     def set_target_distance(self,new_distance):
@@ -102,8 +111,10 @@ class WallFollower():
         r = rospy.Rate(10)
         while not(rospy.is_shutdown()):
             msg = Twist()
-            msg.linear.x = self.speed
+            msg.linear.x = .3*self.speed
+            #print "speed", self.speed
             msg.angular.z = self.turn
+            #print "turn", self.turn
             self.pub.publish(msg)
             cv2.waitKey(10)
             r.sleep()
