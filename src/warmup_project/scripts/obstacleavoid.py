@@ -40,6 +40,7 @@ import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
 import cv2
+from math import cos, sin, pi
 
 class ObstacleAvoid():
     def __init__(self, target=1, buf_big=.2, buf_small=.05):
@@ -65,20 +66,27 @@ class ObstacleAvoid():
 
     def scan_received(self,data):
         angles = [data.angle_min+(data.angle_increment*i) for i in range(len(data.ranges))]
-        vals = [(self.goodness(r,a),a) for r,a in zip(data.ranges,angles) if r>0]
-        goal = max(vals)[1]
+        xys_l = [(r*cos(a),r*sin(a)) for a,r in zip(angles,data.ranges) if a<pi/2 and r>0.0]
+        for x,y in xys_l:
+            if y<.3 and x<.6:
+                print "left"
+                print y,x
+                self.turn = -0.3
+                self.speed = 0.0
+                return
+        xys_r = [(r*cos(a),r*sin(a)) for a,r in zip(angles,data.ranges) if a>3*pi/2 and r>0.0]
+        for x,y in xys_r:
+            if y>-.3 and x<.6:
+                print "right"
+                print y,x
+                self.turn = 0.3
+                self.speed = 0.0
+                return
+        self.turn = 0.0
+        self.speed = 0.1
 
-        if goal<3.1416:
-            self.turn = 2.5*goal/3.1416
-        else:
-            self.turn = 2.5*(goal-3.14156)/3.14156
-        self.speed = .1*(data.ranges[0]-.15)
 
-        print "ahead", vals[0]
-        print "best", max(vals)
-        print "goal", goal
-        print "turn",self.turn
-        print "speed",self.speed
+
 
     def wall_withslider(self):
         """ Main run loop for wall with slider """ 
